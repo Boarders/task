@@ -42,7 +42,6 @@ import qualified Task as Task
 import Task (Task, _text, _status, _task_uid)
 import TaskZipper
 --import Cursor
-import Highlight
 import TaskUID
 import Bwd
 --import Command
@@ -76,8 +75,8 @@ type TaskWidget = Widget WidgetId
 
 
 exampleTasks :: TaskZipper
-exampleTasks = TaskZipper (Nil :|> (newTask "first task" Unfinished 0)) (newTask lcEmpty Done 1)
-   [newTask "do this, do that" Unfinished 2]
+exampleTasks = TaskZipper (Nil :|> (Task.newTask "first task" Task.Unfinished 0)) (Task.newTask lcEmpty Task.Done 1)
+   [Task.newTask "do this, do that" Task.Unfinished 2]
 
 
 initialState :: ViewState
@@ -172,7 +171,7 @@ instance RenderDate Date where
 draw :: forall d . (Ord d, Show d, RenderDate d) => d -> ViewState -> [TaskWidget]
 draw date (ViewState tasks mode) =
   let
-    header, textWindow, footer :: TaskWidget
+    header, textWindow :: TaskWidget
     header =
       withAttr "header" $
       vLimitPercent 5 $
@@ -187,27 +186,17 @@ draw date (ViewState tasks mode) =
       txt (renderDate $ date)
     textWindow =
       borderWithLabel (withAttr "title" $ txt "To do") $
-      withAttr "text" $
+      withAttr "to-do-list" $
       viewport (renderDate date) Both $
       setAvailableSize (100, 800) $      
       visible $
       drawTasks
       tasks
-    footer =
-      vLimitPercent 5 $
-      borderWithLabel (withAttr "title" $ emptyWidget) $
-      withAttr "text" $
-      viewport "footer"  Both $
-      setAvailableSize (100,100) $
-      center $
-      visible $
-      txt "info"
   in
 
     [ center $
           header
       <=> textWindow
-      <=> footer
     ]
 
 taskBorder = joinBorders . withBorderStyle BS.unicode
@@ -230,6 +219,7 @@ renderTaskStatus = \case
 
 drawCurrTask :: Int -> CurrTask -> Widget WidgetId
 drawCurrTask lineNo currTask =
+    withAttr "highlighted" $
     showCursor "cursor" (Location (currTask & (view _text >>> lcTextWidth >>> (+ startCol)), lineNo))
     (currTask & (view _text >>> lcToText >>> (statusTxt <>) >>> txt))
   where
@@ -253,14 +243,11 @@ drawNextTasks = foldr (\t w -> drawTask t <=> w) emptyWidget
 edAttrMap :: AttrMap
 edAttrMap =
   attrMap globalDefault
-    [ ("checked" , textCol     `on` checkBackgroundCol)
-    , ("var"     , textCol     `on` backgroundCol)
-    , ("keyword" , keywordCol  `on` backgroundCol)
-    , ("title"   , titleCol    `on` backgroundCol)
+    [ ("title"   , titleCol    `on` backgroundCol)
     , ("subtitle", subtitleCol `on` backgroundCol)
-    , ("subtitle", headerCol   `on` headerBackground)
     , ("text"    , textCol     `on` backgroundCol)
-    , ("background", textCol   `on` lightOrange)    
+    , ("to-do-list", textCol   `on` backgroundCol)
+    , ("highlighted", textCol  `on` highlightCol)
     , (borderAttr, textCol     `on` borderCol)
     ]
 
@@ -291,8 +278,8 @@ titleCol = orangePeel
 subtitleCol :: Color
 subtitleCol = violet
 
-keywordCol :: Color
-keywordCol = roseMadder
+highlightCol :: Color
+highlightCol = lightPurple
 
 borderCol :: Color
 borderCol = backgroundCol
@@ -321,3 +308,9 @@ lightPurple = Vty.rgbColor 216 191 216
 lightOrange :: Colour
 lightOrange = Vty.rgbColor 254 216 177
 
+todoBackground :: Colour
+todoBackground = Vty.rgbColor 255 228 181
+
+
+accentTone :: Colour
+accentTone = Vty.rgbColor 205 133 63
