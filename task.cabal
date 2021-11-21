@@ -54,9 +54,6 @@ executable viewer
     app/
 
   other-modules:
-    Cursor
-    Command
-    Highlight
     Date
 
   build-depends:
