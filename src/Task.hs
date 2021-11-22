@@ -13,6 +13,11 @@ import TaskUID
 data Status = Done | Unfinished
   deriving stock (Eq, Ord, Show)
 
+flipStatus :: Status -> Status
+flipStatus = \case
+  Done -> Unfinished
+  Unfinished -> Done
+
 data TaskF t = Task
   { text    :: !t
   , status  :: !Status
