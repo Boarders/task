@@ -42,21 +42,15 @@ currTaskText = view _text >>> lcToText
 currTaskToTask :: CurrTask -> Task
 currTaskToTask = over _text lcToText
 
-taskToCurrTask :: TaskUID -> Task -> CurrTask
-taskToCurrTask tuid = over _text lcWithText 
+taskToCurrTask :: Task -> CurrTask
+taskToCurrTask = over _text lcWithText
 
 prev_task :: TaskZipper -> TaskZipper
 prev_task tz@(TaskZipper Nil t ts) = tz
 prev_task tz@(TaskZipper (bts :|> b) c ts) =
-  let
-    buid = view _task_uid b
-  in
-    TaskZipper bts (taskToCurrTask buid b) ((currTaskToTask c) : ts)
+    TaskZipper bts (taskToCurrTask b) ((currTaskToTask c) : ts)
 
 next_task :: TaskZipper -> TaskZipper
 next_task tz@(TaskZipper btw t []) = tz
 next_task tz@(TaskZipper bts c (t:ts)) =
-  let
-    tuid = view _task_uid t
-  in
-    TaskZipper (bts :|> (currTaskToTask c)) (taskToCurrTask tuid t) ts
+    TaskZipper (bts :|> (currTaskToTask c)) (taskToCurrTask t) ts
