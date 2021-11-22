@@ -5,7 +5,7 @@
 module Main where
 
 -- base
-import Control.Category hiding ((.))
+import Control.Category hiding ((.), id)
 -- brick
 import Brick
 import Brick.Widgets.Center as Brick
@@ -21,6 +21,7 @@ import qualified Data.Text.Zipper as TextZipper
 import Graphics.Vty.Attributes as Vty
 import qualified Graphics.Vty.Input as Vty
 import qualified Graphics.Vty.Input.Events as Vty
+import qualified Graphics.Vty.Image as Vty
 
 -- text
 import Data.Text (Text)
@@ -48,6 +49,8 @@ import Bwd
 import Date
 import LineCursor
 
+import Debug.Trace
+
 main :: IO ()
 main = do
   d <- dateToday
@@ -57,6 +60,12 @@ main = do
 data ViewMode =
     Status
   | Input
+  deriving Show
+
+flipViewMode :: ViewMode -> ViewMode
+flipViewMode = \case
+  Status -> Input
+  Input  -> Status
 
 data CursorLoc = CursorLoc
   deriving stock Eq
@@ -69,6 +78,9 @@ data ViewState = ViewState
 _curr_tasks :: Lens' ViewState TaskZipper
 _curr_tasks = lens curr_tasks (\vs ct -> vs {curr_tasks = ct})
 
+_view_mode :: Lens' ViewState ViewMode
+_view_mode = lens view_mode (\vs ct -> vs {view_mode = ct})
+
 
 type WidgetId = Text
 type TaskWidget = Widget WidgetId
@@ -76,7 +88,8 @@ type TaskWidget = Widget WidgetId
 
 exampleTasks :: TaskZipper
 exampleTasks = TaskZipper (Nil :|> (Task.newTask "first task" Task.Unfinished 0)) (Task.newTask lcEmpty Task.Done 1)
-   [Task.newTask "do this, do that" Task.Unfinished 2]
+   [Task.newTask "do this, do that" Task.Unfinished 2,
+    Task.newTask "do something else, always doing something!" Task.Unfinished 2]
 
 
 initialState :: ViewState
@@ -91,21 +104,37 @@ app d = App { appDraw = draw d
             , appAttrMap = \lc -> edAttrMap
             }
 
+modeKey :: Vty.Key
+modeKey = Vty.KChar '@'
+
+
 handleEvent :: ViewState -> BrickEvent WidgetId () -> EventM WidgetId (Next ViewState)
 handleEvent viewState@(ViewState curr_tasks mode) =
   \case
     VtyEvent ve ->
       case ve of
         Vty.EvKey key mods ->
-          case mode of
---            Status -> specialInput viewState key
-            _ ->
-              case elem Vty.MCtrl mods of
-                True -> ctrlInput viewState key
-                _ -> normalInput viewState key
+          case (elem Vty.MCtrl mods, key == modeKey, mode) of
+            (True, True, _     ) -> continue (over _view_mode flipViewMode viewState)
+            (_   , _   , Status) -> statusInput viewState key
+            (True, _   , _     ) -> ctrlInput viewState key
+            _ -> normalInput viewState key
         _ -> continue viewState
     _ -> continue viewState
 
+
+statusInput :: ViewState -> Vty.Key -> EventM Text (Next ViewState)
+statusInput viewState@(ViewState tz mode) =
+  \case
+    Vty.KChar  c
+      | c == 'n'  -> continue (over _curr_tasks next_task viewState)
+    Vty.KChar  c
+      | c == 'p'  -> continue (over _curr_tasks prev_task viewState)
+    Vty.KEnter
+                  -> continue (over (_curr_tasks . _curr_task . _status) Task.flipStatus viewState)
+    key ->  continue viewState
+  where
+    mDo func = continue $ ViewState (over (_curr_task . _text) func tz) mode
 
 ctrlInput :: ViewState -> Vty.Key -> EventM Text (Next ViewState)
 ctrlInput viewState@(ViewState tz mode) =
@@ -114,6 +143,7 @@ ctrlInput viewState@(ViewState tz mode) =
     Vty.KChar c | c == 'e'  -> mDo lcTextStart
     Vty.KChar c | c == 'k'  -> mDo lcDeleteAll
     Vty.KChar c | c == 'd'  -> halt viewState
+    Vty.KChar c | c == ' '  -> continue (over _view_mode flipViewMode viewState)
     key ->  normalInput viewState key
   where
     mDo func = continue $ ViewState (over (_curr_task . _text) func tz) mode
@@ -173,6 +203,7 @@ draw date (ViewState tasks mode) =
   let
     header, textWindow :: TaskWidget
     header =
+      visible $
       withAttr "header" $
       vLimitPercent 5 $
 --      borderWithLabel emptyWidget $
@@ -190,24 +221,26 @@ draw date (ViewState tasks mode) =
       viewport (renderDate date) Both $
       setAvailableSize (100, 800) $      
       visible $
-      drawTasks
+      drawTasks mode $
       tasks
-  in
-
-    [ center $
+    myWidget = withAttr "highlight" $
+      center $
           header
       <=> textWindow
+  in
+
+    [ myWidget
     ]
 
 taskBorder = joinBorders . withBorderStyle BS.unicode
 
 space = setAvailableSize (100, 10) emptyWidget
 
-drawTasks :: TaskZipper -> Widget WidgetId
-drawTasks (TaskZipper bwd ct tsks) =
+drawTasks :: ViewMode -> TaskZipper -> Widget WidgetId
+drawTasks viewMode (TaskZipper bwd ct tsks) =
   vBox
     [ drawPrevTasks bwd
-    , drawCurrTask (max (length bwd - 1) 0) ct
+    , drawCurrTask viewMode ct
     , drawNextTasks tsks
     ]
 -- 〚✓〛✗
@@ -217,10 +250,16 @@ renderTaskStatus = \case
   Task.Done -> "☒  "
   Task.Unfinished ->  "☐  "
 
-drawCurrTask :: Int -> CurrTask -> Widget WidgetId
-drawCurrTask lineNo currTask =
-    withAttr "highlighted" $
-    showCursor "cursor" (Location (currTask & (view _text >>> lcTextWidth >>> (+ startCol)), lineNo))
+selectViewAttr :: ViewMode -> (Widget a -> Widget a)
+selectViewAttr = \case
+  Status -> withAttr "highlighted"
+  Input  -> id
+
+
+drawCurrTask :: ViewMode -> CurrTask -> Widget WidgetId
+drawCurrTask viewMode currTask =
+    selectViewAttr viewMode $
+    showCursor "cursor" (Location (currTask & (view _text >>> lcTextWidth >>> (+ startCol)), 0))
     (currTask & (view _text >>> lcToText >>> (statusTxt <>) >>> txt))
   where
     startCol = Text.length statusTxt
